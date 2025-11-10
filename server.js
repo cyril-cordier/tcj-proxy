@@ -4,7 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
-import pdfPoppler from "pdf-poppler";
+import { fromPath } from "pdf2pic";
 
 dotenv.config();
 const app = express();
@@ -14,17 +14,17 @@ const FOLDER_ID = process.env.FOLDER_ID;
 
 app.use(
   cors({
-    origin: "https://cyril-cordier.github.io", // ton site GitHub Pages
+    origin: "https://cyril-cordier.github.io",
   })
 );
 
 const CACHE_DURATION = 20 * 60 * 1000; // 20 minutes
 let cache = { files: [], timestamp: 0 };
 
-const TMP_DIR = "/tmp/pdfs"; // dossier temporaire Render
+const TMP_DIR = "/tmp/pdfs";
 if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 
-async function fetchDriveFiles() {
+async function fetchDriveFiles(req) {
   console.log("🔄 Fetch depuis Google Drive...");
 
   const driveUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
@@ -45,23 +45,27 @@ async function fetchDriveFiles() {
           const pdfPath = path.join(TMP_DIR, `${file.id}.pdf`);
           const imgPath = path.join(TMP_DIR, `${file.id}.jpg`);
 
-          // Télécharger le PDF
+          // Téléchargement PDF
           const pdfRes = await fetch(link);
           const buffer = await pdfRes.arrayBuffer();
           fs.writeFileSync(pdfPath, Buffer.from(buffer));
 
-          // Convertir PDF → image
-          await pdfPoppler.convert(pdfPath, {
+          // Conversion PDF → image via pdf2pic
+          const converter = fromPath(pdfPath, {
+            density: 150,
+            saveFilename: file.id,
+            savePath: TMP_DIR,
             format: "jpeg",
-            out_dir: TMP_DIR,
-            out_prefix: file.id,
-            page: 1,
+            width: 1920,
+            height: 1080,
           });
+
+          await converter(1); // première page
 
           return {
             ...file,
             mimeType: "image/jpeg",
-            webContentLink: `${req.protocol}://${req.get("host")}/pdfs/${file.id}-1.jpg`,
+            webContentLink: `${req.protocol}://${req.get("host")}/pdfs/${file.id}.1.jpg`,
           };
         } catch (e) {
           console.error("Erreur conversion PDF:", file.name, e);
@@ -79,13 +83,10 @@ async function fetchDriveFiles() {
   return files;
 }
 
-// Route fichiers PDF convertis
 app.use("/pdfs", express.static(TMP_DIR));
 
-// Route principale
 app.get("/files", async (req, res) => {
   try {
-    // Si cache < 20 min → utiliser cache
     if (Date.now() - cache.timestamp < CACHE_DURATION && cache.files.length > 0) {
       console.log("⚡ Renvoi depuis cache");
       return res.json({ files: cache.files });
