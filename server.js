@@ -30,6 +30,27 @@ const FILES_DIR = "/tmp/drive_files";
 if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 
+// Fonction pour convertir un PDF en image
+async function convertPdfToImage(pdfPath, fileId) {
+  try {
+    const options = {
+      density: 150,
+      saveFilename: fileId,
+      savePath: TMP_DIR,
+      format: "jpeg",
+      width: 1920,
+      height: 1080,
+    };
+    const converter = fromPath(pdfPath, options);
+    await converter(1); // Convertit la première page
+    console.log(`✅ PDF converti en image : ${fileId}.jpg`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Erreur conversion PDF ${pdfPath}:`, error);
+    return false;
+  }
+}
+
 // Fonction pour récupérer et traiter les fichiers
 async function fetchDriveFiles(req) {
   console.log("🔄 Fetch depuis Google Drive...");
@@ -53,21 +74,20 @@ async function fetchDriveFiles(req) {
 
         // Pour les PDFs : conversion en image
         if (file.mimeType === "application/pdf") {
-          const imgPath = path.join(TMP_DIR, `${file.id}.jpg`);
-          const converter = fromPath(filePath, {
-            density: 150,
-            saveFilename: file.id,
-            savePath: TMP_DIR,
-            format: "jpeg",
-            width: 1920,
-            height: 1080,
-          });
-          await converter(1);
-          return {
-            ...file,
-            mimeType: "image/jpeg",
-            webContentLink: `${req.protocol}://${req.get("host")}/pdfs/${file.id}.1.jpg`,
-          };
+          const success = await convertPdfToImage(filePath, file.id);
+          if (success) {
+            return {
+              ...file,
+              mimeType: "image/jpeg",
+              webContentLink: `${req.protocol}://${req.get("host")}/pdfs/${file.id}.1.jpg`,
+            };
+          } else {
+            // En cas d'échec de conversion, retourne l'URL directe du PDF
+            return {
+              ...file,
+              webContentLink: link,
+            };
+          }
         }
         // Pour les autres fichiers : servir directement
         else {
@@ -124,7 +144,7 @@ function cleanupOldFiles(dir, maxAgeMs = 24 * 60 * 60 * 1000) {
         if (Date.now() - stats.mtimeMs > maxAgeMs) {
           fs.unlink(filePath, (err) => {
             if (err) console.error("Erreur suppression:", err);
-            else console.log(`Supprimé : ${filePath}`);
+            else console.log(`🗑️ Supprimé : ${filePath}`);
           });
         }
       });
