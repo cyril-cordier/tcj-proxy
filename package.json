@@ -5,20 +5,17 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "preinstall": "bash preinstall.sh"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "dotenv": "^16.0.3",
-    "express": "^4.18.2",
-    "node-fetch": "^3.3.1",
-    "pdf-poppler": "^0.2.3"
-  },
-  "optionalDependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
     "pdf2pic": "^3.1.1"
   },
   "engines": {
     "node": ">=18.0.0"
   }
 }
+
