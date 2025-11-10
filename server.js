@@ -63,9 +63,8 @@ async function fetchDriveFiles(req) {
 
   const files = await Promise.all(
     data.files.map(async (file) => {
-      const link = `https://drive.google.com/uc?id=${file.id}&export=download`;
+      const link = `https://drive.google.com/uc?id=${file.id}&export=download`; // URL Google Drive (déjà HTTPS)
       const filePath = path.join(FILES_DIR, file.id);
-
       try {
         // Télécharger le fichier
         const fileRes = await fetch(link);
@@ -79,26 +78,25 @@ async function fetchDriveFiles(req) {
             return {
               ...file,
               mimeType: "image/jpeg",
-              webContentLink: `${req.protocol}://${req.get("host")}/pdfs/${file.id}.1.jpg`,
+              webContentLink: `https://${req.get("host")}/pdfs/${file.id}.1.jpg`, // HTTPS forcé
             };
           } else {
-            // En cas d'échec de conversion, retourne l'URL directe du PDF
             return {
               ...file,
-              webContentLink: link,
+              webContentLink: link, // URL directe Google Drive (HTTPS)
             };
           }
         }
-        // Pour les autres fichiers : servir directement
+        // Pour les autres fichiers
         else {
           return {
             ...file,
-            webContentLink: `${req.protocol}://${req.get("host")}/files/${file.id}`,
+            webContentLink: `https://${req.get("host")}/files/${file.id}`, // HTTPS forcé
           };
         }
       } catch (e) {
         console.error("Erreur téléchargement:", file.name, e);
-        return { ...file, webContentLink: link }; // Retourne l'URL directe en cas d'erreur
+        return { ...file, webContentLink: link }; // URL directe Google Drive (HTTPS)
       }
     })
   );
@@ -106,6 +104,7 @@ async function fetchDriveFiles(req) {
   cache = { files, timestamp: Date.now() };
   return files;
 }
+
 
 // Routes pour servir les fichiers
 app.use("/pdfs", express.static(TMP_DIR));
