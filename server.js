@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import { fromPath } from "pdf2pic";
+import pdfPoppler from "pdf-poppler"; // Alternative si GraphicsMagick n'est pas disponible
 
 dotenv.config();
 
@@ -30,9 +31,10 @@ const FILES_DIR = "/tmp/drive_files";
 if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 if (!fs.existsSync(FILES_DIR)) fs.mkdirSync(FILES_DIR, { recursive: true });
 
-// Fonction pour convertir un PDF en image
+// Fonction pour convertir un PDF en image (avec fallback)
 async function convertPdfToImage(pdfPath, fileId) {
   try {
+    // Essayer d'abord avec pdf2pic (GraphicsMagick/ImageMagick)
     const options = {
       density: 150,
       saveFilename: fileId,
@@ -42,12 +44,26 @@ async function convertPdfToImage(pdfPath, fileId) {
       height: 1080,
     };
     const converter = fromPath(pdfPath, options);
-    await converter(1); // Convertit la première page
-    console.log(`✅ PDF converti en image : ${fileId}.jpg`);
+    await converter(1);
+    console.log(`✅ PDF converti en image (pdf2pic) : ${TMP_DIR}/${fileId}.1.jpg`);
     return true;
   } catch (error) {
-    console.error(`❌ Erreur conversion PDF ${pdfPath}:`, error);
-    return false;
+    console.error(`❌ Erreur avec pdf2pic, tentative avec pdf-poppler :`, error);
+    try {
+      // Fallback vers pdf-poppler
+      const outputPath = path.join(TMP_DIR, `${fileId}.jpg`);
+      await pdfPoppler.convert(pdfPath, outputPath, {
+        format: "jpeg",
+        firstPageToConvert: 1,
+        lastPageToConvert: 1,
+        quality: 75,
+      });
+      console.log(`✅ PDF converti en image (pdf-poppler) : ${outputPath}`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Erreur conversion PDF (pdf-poppler) :`, error);
+      return false;
+    }
   }
 }
 
@@ -63,8 +79,9 @@ async function fetchDriveFiles(req) {
 
   const files = await Promise.all(
     data.files.map(async (file) => {
-      const link = `https://drive.google.com/uc?id=${file.id}&export=download`; // URL Google Drive (déjà HTTPS)
+      const link = `https://drive.google.com/uc?id=${file.id}&export=download`;
       const filePath = path.join(FILES_DIR, file.id);
+
       try {
         // Télécharger le fichier
         const fileRes = await fetch(link);
@@ -75,28 +92,32 @@ async function fetchDriveFiles(req) {
         if (file.mimeType === "application/pdf") {
           const success = await convertPdfToImage(filePath, file.id);
           if (success) {
-            return {
-              ...file,
-              mimeType: "image/jpeg",
-              webContentLink: `https://${req.get("host")}/pdfs/${file.id}.1.jpg`, // HTTPS forcé
-            };
-          } else {
-            return {
-              ...file,
-              webContentLink: link, // URL directe Google Drive (HTTPS)
-            };
+            const imagePath = path.join(TMP_DIR, `${file.id}.1.jpg`);
+            if (fs.existsSync(imagePath)) {
+              return {
+                ...file,
+                mimeType: "image/jpeg",
+                webContentLink: `https://${req.get("host")}/pdfs/${file.id}.1.jpg`,
+              };
+            }
           }
+          // Fallback vers l'URL directe du PDF
+          console.warn(`⚠️ Conversion échouée pour ${file.name}, utilisation du PDF direct`);
+          return {
+            ...file,
+            webContentLink: link,
+          };
         }
         // Pour les autres fichiers
         else {
           return {
             ...file,
-            webContentLink: `https://${req.get("host")}/files/${file.id}`, // HTTPS forcé
+            webContentLink: `https://${req.get("host")}/files/${file.id}`,
           };
         }
       } catch (e) {
         console.error("Erreur téléchargement:", file.name, e);
-        return { ...file, webContentLink: link }; // URL directe Google Drive (HTTPS)
+        return { ...file, webContentLink: link };
       }
     })
   );
@@ -104,7 +125,6 @@ async function fetchDriveFiles(req) {
   cache = { files, timestamp: Date.now() };
   return files;
 }
-
 
 // Routes pour servir les fichiers
 app.use("/pdfs", express.static(TMP_DIR));
