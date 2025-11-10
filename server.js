@@ -100,5 +100,11 @@ app.get("/files", async (req, res) => {
   }
 });
 
+app.get("/refresh", async (req, res) => {
+  cache = { files: [], timestamp: 0 };
+  const files = await fetchDriveFiles(req);
+  res.json({ files });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Serveur actif sur port ${PORT}`));
