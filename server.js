@@ -366,6 +366,14 @@ app.use("/files", (req, res, next) => {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        
+        // Validation des valeurs
+        if (isNaN(start) || isNaN(end) || start < 0 || end >= fileSize || start > end) {
+          res.setHeader("Content-Range", `bytes */${fileSize}`);
+          res.writeHead(416, { "Content-Range": `bytes */${fileSize}` });
+          return res.end();
+        }
+        
         const chunksize = end - start + 1;
         const file = fs.createReadStream(filePath, { start, end });
         const head = {
@@ -380,8 +388,12 @@ app.use("/files", (req, res, next) => {
         file.pipe(res);
         return;
       } else {
+        // Pas de Range header : renvoyer le fichier complet mais en streaming
+        // Le navigateur utilisera le streaming grâce à Accept-Ranges
         res.setHeader("Content-Length", fileSize);
         res.setHeader("Accept-Ranges", "bytes");
+        // Laisser express.static gérer le streaming du fichier complet
+        // Le navigateur fera ensuite des requêtes Range pour les chunks nécessaires
       }
     }
   }
