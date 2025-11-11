@@ -312,6 +312,16 @@ app.get("/refresh", async (req, res) => {
   res.json({ files });
 });
 
+// Gérer les requêtes OPTIONS (preflight CORS) pour les vidéos
+app.options("/files/*", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Range");
+  res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+  res.setHeader("Access-Control-Max-Age", "86400"); // 24 heures
+  res.sendStatus(204);
+});
+
 // Route pour servir les fichiers avec le bon Content-Type (après les routes GET)
 app.use("/files", (req, res, next) => {
   // Ignorer si c'est une requête pour la liste (déjà gérée par la route GET)
@@ -346,6 +356,12 @@ app.use("/files", (req, res, next) => {
       const fileSize = stat.size;
       const range = req.headers.range;
 
+      // Headers CORS pour les vidéos
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Range");
+      res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+
       if (range) {
         const parts = range.replace(/bytes=/, "").split("-");
         const start = parseInt(parts[0], 10);
@@ -357,6 +373,8 @@ app.use("/files", (req, res, next) => {
           "Accept-Ranges": "bytes",
           "Content-Length": chunksize,
           "Content-Type": contentType,
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
         };
         res.writeHead(206, head);
         file.pipe(res);
