@@ -322,7 +322,7 @@ app.options("/files/*", (req, res) => {
   res.sendStatus(204);
 });
 
-// Route pour servir les fichiers avec le bon Content-Type (après les routes GET)
+// Route pour servir les fichiers avec le bon Content-Type et CORS (après les routes GET)
 app.use("/files", (req, res, next) => {
   // Ignorer si c'est une requête pour la liste (déjà gérée par la route GET)
   if (req.path === "" || req.path === "/") {
@@ -348,57 +348,58 @@ app.use("/files", (req, res, next) => {
       ".json": "application/json",
     };
     const contentType = mimeTypes[ext] || "application/octet-stream";
-    res.setHeader("Content-Type", contentType);
     
-    // Pour les vidéos, permettre le streaming (Range requests)
+    // Headers CORS pour tous les fichiers (surtout important pour les vidéos)
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
+    
+    // Pour les vidéos, forcer le téléchargement complet avec cache
     if (contentType.startsWith("video/")) {
       const stat = fs.statSync(filePath);
       const fileSize = stat.size;
-      const range = req.headers.range;
-
-      // Headers CORS pour les vidéos
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Range");
-      res.setHeader("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length");
-
-      if (range) {
-        const parts = range.replace(/bytes=/, "").split("-");
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        
-        // Validation des valeurs
-        if (isNaN(start) || isNaN(end) || start < 0 || end >= fileSize || start > end) {
-          res.setHeader("Content-Range", `bytes */${fileSize}`);
-          res.writeHead(416, { "Content-Range": `bytes */${fileSize}` });
-          return res.end();
-        }
-        
-        const chunksize = end - start + 1;
-        const file = fs.createReadStream(filePath, { start, end });
-        const head = {
-          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-          "Accept-Ranges": "bytes",
-          "Content-Length": chunksize,
-          "Content-Type": contentType,
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
-        };
-        res.writeHead(206, head);
-        file.pipe(res);
-        return;
-      } else {
-        // Pas de Range header : renvoyer le fichier complet mais en streaming
-        // Le navigateur utilisera le streaming grâce à Accept-Ranges
-        res.setHeader("Content-Length", fileSize);
-        res.setHeader("Accept-Ranges", "bytes");
-        // Laisser express.static gérer le streaming du fichier complet
-        // Le navigateur fera ensuite des requêtes Range pour les chunks nécessaires
-      }
+      
+      // Ignorer les Range requests et renvoyer le fichier complet
+      // Cela force un téléchargement unique au lieu de multiples requêtes
+      res.setHeader("Cache-Control", "public, max-age=31536000"); // 1 an
+      res.setHeader("Content-Length", fileSize);
+      res.setHeader("Content-Type", contentType);
+      // Ne pas définir Accept-Ranges pour éviter les Range requests
+      
+      // Renvoyer le fichier complet avec statut 200
+      const file = fs.createReadStream(filePath);
+      res.writeHead(200);
+      file.pipe(res);
+      return; // Ne pas passer à express.static
     }
   }
   next();
-}, express.static(FILES_DIR));
+}, express.static(FILES_DIR, {
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+      ".mp4": "video/mp4",
+      ".webm": "video/webm",
+      ".mov": "video/quicktime",
+      ".avi": "video/x-msvideo",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+      ".pdf": "application/pdf",
+    };
+    const contentType = mimeTypes[ext];
+    if (contentType) {
+      res.setHeader("Content-Type", contentType);
+    }
+    
+    // Pour les vidéos, désactiver les Range requests pour forcer le téléchargement complet
+    if (contentType && contentType.startsWith("video/")) {
+      // Ne pas définir Accept-Ranges pour désactiver les Range requests
+      // Le navigateur téléchargera le fichier complet
+    }
+  }
+}));
 
 // Nettoyage des fichiers anciens
 function cleanupOldFiles(dir, maxAgeMs = 24 * 60 * 60 * 1000) {
